@@ -1,6 +1,7 @@
 (function () {
   var util = require('./helpers/util'),
-      fs = require('fs');
+      fs = require('fs'),
+      pdf = require('../app/node_modules/phantom-html2pdf');
 
   var defaultConfig = {
     theme: 'ambiance',
@@ -9,17 +10,20 @@
     extraKeys: {"Enter": "newlineAndIndentContinueMarkdownList"},
     dragDrop: false,
     autofocus: true,
-    lineWrapping: true,    
+    lineWrapping: true,
     foldGutter: true,
-    styleActiveLine: true
+    styleActiveLine: true,
+    scrollbarStyle: "overlay"
   };
-	
+
+  var SHARE_REG = /\s*\[SHARE:(.*)\]/;
+	var PDF_REG = /\.pdf/;
   hmd.editor = {
     init: function (options,filepath) {
       var el = options.el,txt,me = this;
-      options = $.extend({}, defaultConfig, options);      
+      options = $.extend({}, defaultConfig, options);
       this.initMarked();
-      this.initQiniu(options);
+      this.initClound(options);
       this.cm = CodeMirror.fromTextArea(el, options);
       this.setTheme(options.theme);
       //指定要打开的文件,如果未指定,则保存时会弹出文件选择对话框
@@ -40,17 +44,62 @@
       this.cm.addKeyMap({
         "Ctrl-S": function () {
           me.save();
-        }
-      });      
-      //图片上传
+        },
+        //加粗
+        "Ctrl-B": me.bold.bind(this),
+        //突出关键词显示
+        "Ctrl-M": me.mark.bind(this),
+        "Ctrl-W": me.code.bind(this),
+        //表格模版
+        "Ctrl-T": me.table.bind(this),
+        "Ctrl-I": me.image.bind(this),
+        "Ctrl-L": me.link.bind(this),
+      });
+    },
+    wrapSelection:function(reg,signLeft,signRight){
+      var selection = this.cm.doc.getSelection(),
+          resultTxt;
+      signRight = signRight || signLeft;
+      if(reg.test(selection)){
+        resultTxt = selection.replace(reg,function($1,$2){return $2;});
+      }
+      else{
+        resultTxt = signLeft + selection + signRight;
+      }
+      this.cm.doc.replaceSelection(resultTxt,'around');
+    },
+    image:function(){
+      this.cm.doc.replaceSelection('![]()');
+    },
+    link:function(){
+      this.cm.doc.replaceSelection('[]()');
+    },
+    table:function(){
+    	var tableTemplate = `| aaa | bbbb | cccc |
+|---:| :-- |:---:|
+| 1 | 2 | 3 |`;
+      this.cm.doc.replaceSelection(tableTemplate,'star');
+    },
+    code:function(){
+      this.wrapSelection(/```([\s\S]*)```/,'```\r\n','\r\n```');
+    },
+    mark:function(){
+      this.wrapSelection(/`(.*)`/,'`');
+    },
+    bold:function(a){
+      this.wrapSelection(/\*\*(.*)\*\*/,'**');
+    },
+    reset:function(){
+      setTimeout(function(){
+      	hmd.editor.cm.setValue(hmd.editor.cm.getValue());
+      },1000);
     },
     setTheme:function(theme){
-      //if(theme != 'default'){
-        $('#editorThemeStyleSheet').remove();
-        var styleSheet = $('<link id="editorThemeStyleSheet" href="lib/codemirror/theme/'+theme+'.css" rel="stylesheet" />');
-        $('head').append(styleSheet);
-      	this.cm.setOption('theme',theme);
-     // }
+      $('#editorThemeStyleSheet').remove();
+      var styleSheet = $('<link id="editorThemeStyleSheet" href="lib/codemirror/theme/'+theme+'.css" rel="stylesheet" />');
+      $('head').append(styleSheet);
+      this.cm.setOption('theme',theme);
+      this.reset();
     },
     initMarked:function(){
       var marked = this.marked = require('../app/node_modules/marked');
@@ -70,22 +119,79 @@
         }
       });
     },
-    //解析markdown
     parse:function(){
-      return this.marked(this.cm.getValue());
+      var val = this.cm.getValue().replace(SHARE_REG,'');
+      var time = new Date()*1;
+      var html = this.marked(val);
+      console.log(new Date()*1 - time);
+      return html;
     },
-    initQiniu:function(options){
-      this.qiniuToken = options.qiniuToken;
-      this.bucketHost = options.bucketHost;
+    getTitle:function(html){
+      html = html || this.parse();
+      var match = html.match(/<h1>.*<\/h1>/),
+      title = match ? $(match[0]).text():'预览';
+      return title;
+    },
+    //上传文档到云端
+    share:function(fn){
+      var shareArgs =  SHARE_REG.exec(this.cm.getValue()),
+          me = this,
+          path,
+          ss = hmd.system.get();
+      if(!shareArgs || !shareArgs[1]){
+        me.fire('error',{msg:'缺少[SHARE:文件名]标签'});
+        return;
+      }
+      path = ~shareArgs[1].indexOf('.html') ? shareArgs[1] : shareArgs[1]+ '.html';
+      //上传html文档
+      hmd.clound.upload({
+        cloundType:ss.cloundType,
+        path:path,
+        host:ss.docBucketHost,
+        bucketName:ss.docBucketName,
+        accessKey:ss.accessKey,
+    		secretKey:ss.secretKey,
+        body:this.generalHtmlStr(),
+        onSuccess:function(data){
+          fn(data.url);
+        },
+        onError:function(data){
+          me.fire('error',{msg:data.msg});
+        }
+      });
+    },
+    initClound:function(options){
       $('.studio-wrap')[0].onpaste = this.uploadImage.bind(this);
     },
     //设置当前文件
     setFile:function(filepath){
-      if(filepath && fs.existsSync(filepath)){
-        var txt = util.readFileSync(filepath);
-        this.filepath = filepath;
-        this.cm.setValue(txt);
-        this.fire('setFiled',this.filepath);
+      if(filepath){
+        //线上文件
+        if(~filepath.indexOf('http://')){
+          hmd.clound.getFile({
+            path:filepath,
+            onSuccess:function(txt){
+              this.cm.setValue(txt);
+              this.fire('setFiled',filepath);
+            }.bind(this),
+            onError:function(err){
+              if(err.status  == 404){
+                this.fire('error',{msg:'文件不存在'});
+              }
+              else{
+               	this.fire('error',{msg:err.statusText});
+              }
+            }.bind(this)
+          });
+        }
+        //本地文件
+        else if(fs.existsSync(filepath)){
+          var txt = util.readFileSync(filepath);
+          this.filepath = filepath;
+          this.cm.setValue(txt);
+          this.fire('setFiled',this.filepath);
+          this.reset();
+        }
       }
       else{
         this.filepath = null;
@@ -97,46 +203,31 @@
       return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
     },
     uploadImage:function(ev){
-      var clipboardData, items, item;
-      if(!this.qiniuToken){
-        this.fire('error',{msg:'未设置七牛密钥,无法上传图片'});
-      }
-      else if (ev && (clipboardData = ev.clipboardData) && (items = clipboardData.items) &&
+      var clipboardData, items, item,ss = hmd.system.get(),me = this;
+      if (ev && (clipboardData = ev.clipboardData) && (items = clipboardData.items) &&
           (item = items[0]) && item.kind == 'file' && item.type.match(/^image\//i)) {
         var blob = item.getAsFile();
-        var fileName = this.guid() + '.' +  blob.type.split('/')[1];
-        this._qiniuUpload(blob, this.qiniuToken, fileName, function (blkRet) {
-          var img = '![](http://'+this.bucketHost+'/' + blkRet.key + ')';
-          this.cm.doc.replaceSelection(img);
-        }.bind(this));
+        var path = this.guid() + '.' +  blob.type.split('/')[1];
+        hmd.clound.upload({
+          cloundType:ss.cloundType,
+          path:path,
+          host:ss.bucketHost,
+          bucketName:ss.bucketName,
+          accessKey:ss.accessKey,
+    			secretKey:ss.secretKey,
+          body:blob,
+          fileType:'image',
+          onSuccess:function(data){
+            var img = '![](http://'+ ss.bucketHost+'/' + data.key + ')';
+          	this.cm.doc.replaceSelection(img);
+            //fn(data.url);
+          }.bind(this),
+          onError:function(data){
+            me.fire('error',{msg:data.msg});
+          }
+        });
         return false;
       }
-    },
-    _qiniuUpload:function (f, token, key,fn) {
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', 'http://up.qiniu.com', true);
-      var formData, startDate;
-      formData = new FormData();
-      if (key !== null && key !== undefined) formData.append('key', key);
-      formData.append('token', token);
-      formData.append('file', f);
-      var taking;
-				
-      xhr.onreadystatechange = function (response) {
-        if (xhr.readyState == 4 && xhr.status == 200 && xhr.responseText) {
-          var blkRet = JSON.parse(xhr.responseText);
-          fn(blkRet);
-        } else if (xhr.status != 200 && xhr.responseText) {
-          if(xhr.status == 631){
-            hmd.editor.fire('error',{msg:'七牛空间不存在.'});
-          }
-          else{
-            hmd.editor.fire('error',{msg:'七牛设置错误.'});
-          }
-        }
-      };
-      startDate = new Date().getTime();
-      xhr.send(formData);
     },
     openFile:function(){
       var me = this;
@@ -147,6 +238,38 @@
         }
       }, false);
       this.openFileInput.trigger('click');
+    },
+    generalHtmlStr:function(){
+      var ssData = hmd.system.get(), html =this.parse() ;
+      //读取样式文件,内嵌到导出的html页面
+      styleText = '<style type="text/css">'+ util.readFileSync('app/css/previewtheme/' + ssData.preViewTheme + '.css') +'</style>';
+      styleText += '<style type="text/css">'+ util.readFileSync('app/node_modules/highlight.js/styles/' + ssData.preViewHighLightTheme + '.css') +'</style>';
+      template = util.readFileSync('app/modules/studio/views/export.html');
+      template = template.replace('<!--titleMarked-->',this.getTitle(html))
+      template = template.replace('<!--cssMarked-->',styleText);
+      template = template.replace('<!--content-->',html);
+      return template;
+    },
+    export:function(){
+      var me = this;
+      this.saveAsInput = $('<input style="display:none;" type="file"  accept=".html|.pdf" nwsaveas/>');
+      this.saveAsInput[0].addEventListener("change", function (evt) {
+        var template,styleText;
+        var path = this.value;
+        var html = me.generalHtmlStr();
+        if(!path) return;
+        if(PDF_REG.test(path)){
+          pdf.convert({html : html}, function(result) {
+            result.toFile(path);
+            require('nw.gui').Shell.showItemInFolder(path);
+          });
+        }
+        else{
+          util.writeFileSync(this.value, html);
+        	require('nw.gui').Shell.showItemInFolder(path);
+        }
+      }, false);
+      this.saveAsInput.trigger('click');
     },
     //弹出保存文件对话框
     saveAs:function(){
@@ -162,14 +285,45 @@
     },
     //保存文件
     save: function () {
-      var txt = this.cm.getValue();
-      if(this.filepath){
-        util.writeFileSync(this.filepath, txt);
-      	this.fire('saved',this.filepath);
+      var txt = this.cm.getValue(),
+          path,
+          shareArgs =  SHARE_REG.exec(this.cm.getValue());
+      if(this.filepath || (shareArgs && shareArgs[1])){
+        if(this.filepath){
+          hmd.system.setLastFile(this.filepath);
+          util.writeFileSync(this.filepath, txt);
+          this.fire('saved',this.filepath);
+        }
+        if(shareArgs && shareArgs[1]){
+          path = ~shareArgs[1].indexOf('.md') ? shareArgs[1] : shareArgs[1]+ '.md';
+          this.saveToClound(path)
+        }
       }
       else{
         this.saveAs();
       }
+    },
+    //保存到云存储
+    saveToClound:function(path){
+      var me = this,
+      ss = hmd.system.get();
+      //上传原始markdown文档
+      hmd.clound.upload({
+        cloundType:ss.cloundType,
+        path:path,
+        host:ss.docBucketHost,
+        bucketName:ss.docBucketName,
+        accessKey:ss.accessKey,
+        mime:'text/plain',
+    		secretKey:ss.secretKey,
+        body:this.cm.getValue(),
+        onSuccess:function(data){
+          me.fire('saved',data.path);
+        },
+        onError:function(data){
+          me.fire('error',{msg:data.msg});
+        }
+      });
     },
     events: {},
     fire: function (eventName, obj) {

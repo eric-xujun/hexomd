@@ -67,7 +67,7 @@
       }, 120000);
       var locPackage = require('nw.gui').App.manifest;
       //获取版本信息和更新文件列表
-      hmd.updater.get(packageFile)
+      hmd.updater.get(packageFile+ '?'+new Date()*1)
       .then(function (packageData) {
         clearTimeout(checkUpdateTimer);
         packageData.text = packageData.buffer.toString();
@@ -101,10 +101,12 @@
     },
     //安装补丁包
     install: function () {
+      fs.rmdirSync(updatePath);
+      fs.mkdirSync(updatePath);
       //移动配置文件
       require("child_process").exec('xcopy "' + updatePath + '\\package.json" "' + execPath + '\\package.json" /s /e /y');
       //解压缩补丁文件
-      var unzip = execPath + '\\7z.exe x '+ updatePath +'\\update.zip -y';
+      var unzip = execPath + '\\7z.exe x '+ updatePath +'\\update.zip -o'+ execPath+' -y';
       require("child_process").exec(unzip,function(){
       hmd.msg('===更新完成,重启后生效===');
       });

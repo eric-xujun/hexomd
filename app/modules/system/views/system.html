@@ -1,6 +1,6 @@
 <div class="content studio-wrap">
   <form class="system-form" name="systemForm">
-    <div class="form-group">
+<!--    <div class="form-group">
       <label>编辑器样式</label>
       <select class="form-control" name="theme" ng-model="systemSetting.theme"  ng-options="k as v for (k, v) in themes">
       </select>
@@ -14,6 +14,13 @@
       <label>代码预览样式</label>
       <select class="form-control" name="preViewHighLightTheme" ng-model="systemSetting.preViewHighLightTheme"  ng-options="k as v for (k, v) in preViewHighLightThemes">
       </select>
+    </div>-->
+    <div class="form-group">
+      <label>预览窗口模式</label>
+      <select class="form-control" name="theme" ng-model="systemSetting.preViewWindow">
+        <option value="out">新窗口</option>
+        <option value="in">分栏</option>
+      </select>
     </div>
     <h3>七牛空间设置</h3>
     <div class="form-group">
@@ -25,17 +32,25 @@
       <input class="form-control" name="secretKey" ng-model="systemSetting.secretKey"  type="text"/>
     </div>
     <div class="form-group">
-      <label>空间</label>
+      <label>图片空间</label>
       <input class="form-control" name="bucketName" ng-model="systemSetting.bucketName" type="text"/>
     </div>
     <div class="form-group">
-      <label>空间域名</label>
+      <label>图片空间域名</label>
       <input class="form-control" name="bucketHost" ng-model="systemSetting.bucketHost" type="text"/>
     </div>
     <div class="form-group">
+      <label>文档空间</label>
+      <input class="form-control" name="docBucketName" ng-model="systemSetting.docBucketName" type="text"/>
+    </div>
+    <div class="form-group">
+      <label>文档空间域名</label>
+      <input class="form-control" name="bucketHost" ng-model="systemSetting.docBucketHost" type="text"/>
+    </div>
+<!--    <div class="form-group">
       <label>过期时间</label>
       <input name="deadline" class="form-control" ng-model="systemSetting.deadline" type="number"/>
-    </div>
+    </div>-->
     <button type="submit" class="btn btn-default" ng-click="save(systemSetting)">保存</button>
   </form>
 </div>

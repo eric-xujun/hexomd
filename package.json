@@ -7,20 +7,21 @@
   "directories": {
     "test": "no"
   },
+  "version": "1.2.1.0",
   "devDependencies": {},
   "window": {
     "title": "HexoMD",
     "icon": "app/img/logo.png",
     "toolbar": false,
     "frame": false,
-    "width": 1000,
+    "width": 1100,
     "height": 700,
     "position": "center",
     "min_width": 600,
     "min_height": 400
   },
   "updater":{
-  	"version":"0.7.0.2",
-    "package":"http://7xit5q.com1.z0.glb.clouddn.com/update0.7.0.2.zip"
+  	"version":"1.2.1.0",
+    "package":"http://7xit5q.com1.z0.glb.clouddn.com/updater.zip?1.2.1.0"
   }
 }

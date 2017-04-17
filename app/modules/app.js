@@ -1,15 +1,14 @@
 (function (global) {
   var gui = require('nw.gui');
-  
 
-  var hmd = global.hmd = angular.module('hmd', ['ui.router','hmd.directives','hmd.filters','hmd.studio','hmd.system']),
+  var hmd = global.hmd = angular.module('hmd', ['ui.router','hmd.directives','hmd.filters','hmd.studio','hmd.system','hmd.bucket']),
       fs = require('fs'),
       //模块根目录
       baseModuleDir = './app/modules/';
   hmd.config(function ($stateProvider, $urlRouterProvider) {
     $urlRouterProvider.otherwise("/studio");
   });
-  
+
 	hmd.storeDir =  require('nw.gui').App.dataPath;
 
   //注册模块,模块内js文件会被自动加载到页面中
@@ -21,13 +20,10 @@
     fs.readdirSync(baseModuleDir + name)
     .forEach(function (file) {
       if (~file.indexOf('.js')) {
-        document.write('<script src="modules/' + name + '/' + file + '"></script>');
+        $('head').append('<script src="modules/' + name + '/' + file + '"></script>');
       }
     });
   };
-
-  
-  
   //消息等级
   var msgTimer = null;
   var MSG_LEVEL = hmd.MSG_LEVEL = {
@@ -61,10 +57,11 @@
     $navList.find('li').removeClass('active');
     $navList.find('.' + state).addClass('active');
   };
-  
+
   //引入模块
  	hmd.regModule('studio');
   hmd.regModule('system');
+	hmd.regModule('bucket');
 
   window.ondragover = function (e) { e.preventDefault(); return false; };
   window.ondrop = function (e) { e.preventDefault(); return false; };
